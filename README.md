@@ -230,7 +230,8 @@ Double-click **`start_antigravity_mac.command`** in the repo root.
 #### Windows
 Double-click **`start_antigravity_win.bat`** in the repo root.
 
-- **If it doesn't launch**: the executable may not be in your PATH. Right-click the file, edit it, and replace `"Antigravity.exe"` with the full install path (e.g. `"%LOCALAPPDATA%\Programs\Antigravity\Antigravity.exe"`).
+- **If it doesn't launch**: verify that Antigravity IDE is installed at `"%LOCALAPPDATA%\Programs\Antigravity IDE\Antigravity IDE.exe"`. If it is installed elsewhere, right-click the file and update the executable path.
+- **Upgrading to Antigravity 2.0?** The Windows executable was renamed to `Antigravity IDE.exe`. If you are still using the older `Antigravity.exe` installation, auto-launch will not find it. Please update Antigravity, or set the `ANTIGRAVITY_PATH` override in your `.env` file.
 
 #### Linux
 On Linux (especially when using AppImages), the `antigravity` command might not be globally available.
