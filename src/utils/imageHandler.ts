@@ -62,10 +62,14 @@ export function buildPromptWithAttachmentUrls(prompt: string, attachments: Inbou
 const LOCAL_FILE_MARKER_PATTERN = /\[\[\s*(image|file|video)\s*:\s*([^\]]+?)\s*\]\]/gi;
 const URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
 
+function normalizeLocalFileMarkerPath(rawPath: string): string {
+    return (rawPath || '').trim().replace(/[ \t]*\r?\n[ \t]*/g, '');
+}
+
 export function extractLocalFileMarkers(text: string): ExtractedLocalFileMarkers {
     const markers: LocalFileMarker[] = [];
     const cleaned = (text || '').replace(LOCAL_FILE_MARKER_PATTERN, (match, rawKind: string, rawPath: string) => {
-        const candidatePath = (rawPath || '').trim();
+        const candidatePath = normalizeLocalFileMarkerPath(rawPath);
         if (!candidatePath || URL_PATTERN.test(candidatePath) || !path.isAbsolute(candidatePath)) {
             return match;
         }

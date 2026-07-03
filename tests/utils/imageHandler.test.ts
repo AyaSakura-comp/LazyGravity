@@ -64,6 +64,30 @@ describe('imageHandler', () => {
                 'video too',
             ].join('\n'));
         });
+
+        it('extracts multiple adjacent image markers whose absolute paths were line-wrapped', () => {
+            const result = extractLocalFileMarkers([
+                '[[image:',
+                '/home/chihmin/.gemini/antigravity/bra',
+                'in/981e26ac/artifacts/battle_cg_swor',
+                'd_clash_5steps.png]] [[image:',
+                '/home/chihmin/.gemini/antigravity/bra',
+                'in/981e26ac/artifacts/battle_cg_swor',
+                'd_clash_10steps.png]]',
+            ].join('\n'));
+
+            expect(result.markers).toEqual([
+                {
+                    kind: 'image',
+                    path: '/home/chihmin/.gemini/antigravity/brain/981e26ac/artifacts/battle_cg_sword_clash_5steps.png',
+                },
+                {
+                    kind: 'image',
+                    path: '/home/chihmin/.gemini/antigravity/brain/981e26ac/artifacts/battle_cg_sword_clash_10steps.png',
+                },
+            ]);
+            expect(result.text).toBe('');
+        });
     });
 
     describe('toDiscordFileAttachments', () => {
