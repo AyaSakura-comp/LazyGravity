@@ -81,9 +81,12 @@ import {
     buildPromptWithAttachmentUrls,
     cleanupInboundImageAttachments,
     downloadInboundImageAttachments,
+    extractLocalFileMarkers,
     InboundImageAttachment,
     isImageAttachment,
+    LocalFileMarker,
     toDiscordAttachment,
+    toDiscordFileAttachments,
 } from '../utils/imageHandler';
 import { sendModeUI } from '../ui/modeUi';
 import { sendModelsUI, buildModelsUI } from '../ui/modelsUi';
@@ -285,6 +288,22 @@ async function sendPromptToAntigravity(
         if (imageIntentPattern.test(prompt)) return true;
         if (response.includes('![') || imageUrlPattern.test(response)) return true;
         return false;
+    };
+
+    const sendLocalFileMarkers = async (markers: LocalFileMarker[]): Promise<void> => {
+        if (!channel || markers.length === 0) return;
+
+        const files = await toDiscordFileAttachments(markers);
+        if (files.length === 0) return;
+
+        await enqueueGeneral(async () => {
+            await channel.send({
+                content: t(`📎 Attached local output files (${files.length})`),
+                files,
+            }).catch((error: unknown) => {
+                logDeliveryError('sendLocalFileMarkers/send', error);
+            });
+        }, 'send-local-file-markers');
     };
 
     const sendGeneratedImages = async (responseText: string): Promise<void> => {
@@ -797,6 +816,10 @@ async function sendPromptToAntigravity(
                         : emergencyText;
                     const separated = splitOutputAndLogs(finalResponseText);
                     const finalOutputText = separated.output || finalResponseText;
+                    const localFileExtraction = extractLocalFileMarkers(finalOutputText || '');
+                    const visibleFinalOutputText = localFileExtraction.text;
+                    const finalOutputDisplayText = visibleFinalOutputText
+                        || (localFileExtraction.markers.length > 0 ? t('Attached file(s) below.') : '');
                     // Process logs are now collected by onProcessLog callback directly;
                     // sanitizeActivityLines is NOT applied because it would strip the very
                     // content we want to display (activity messages, tool names, etc.)
@@ -805,9 +828,9 @@ async function sendPromptToAntigravity(
                         logger.divider('Process Log');
                         console.info(finalLogText);
                     }
-                    if (finalOutputText && finalOutputText.trim().length > 0) {
-                        logger.divider(`Output (${finalOutputText.length} chars)`);
-                        console.info(finalOutputText);
+                    if (finalOutputDisplayText && finalOutputDisplayText.trim().length > 0) {
+                        logger.divider(`Output (${finalOutputDisplayText.length} chars)`);
+                        console.info(finalOutputDisplayText);
                     }
                     logger.divider();
 
@@ -826,10 +849,10 @@ async function sendPromptToAntigravity(
 
                     liveResponseUpdateVersion += 1;
                     const responseVersion = liveResponseUpdateVersion;
-                    if (finalOutputText && finalOutputText.trim().length > 0) {
+                    if (finalOutputDisplayText && finalOutputDisplayText.trim().length > 0) {
                         await upsertLiveResponseEmbeds(
                             `${PHASE_ICONS.complete} Final Output`,
-                            finalOutputText,
+                            finalOutputDisplayText,
                             PHASE_COLORS.complete,
                             t(`⏱️ Time: ${elapsed}s | Complete`),
                             {
@@ -882,9 +905,10 @@ async function sendPromptToAntigravity(
                         }
                     }
 
-                    await sendGeneratedImages(finalOutputText || '');
+                    await sendLocalFileMarkers(localFileExtraction.markers);
+                    await sendGeneratedImages(finalOutputDisplayText || finalOutputText || '');
                     await clearWatchingReaction();
-                    await message.react(finalOutputText && finalOutputText.trim().length > 0 ? '✅' : '⚠️').catch(() => { });
+                    await message.react(finalOutputDisplayText && finalOutputDisplayText.trim().length > 0 ? '✅' : '⚠️').catch(() => { });
                 } catch (error) {
                     logger.error(`[sendPromptToAntigravity:${monitorTraceId}] onComplete failed:`, error);
                 }

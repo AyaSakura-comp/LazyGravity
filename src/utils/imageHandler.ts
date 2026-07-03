@@ -17,6 +17,18 @@ export interface InboundImageAttachment {
     mimeType: string;
 }
 
+export type LocalFileMarkerKind = 'image' | 'file' | 'video';
+
+export interface LocalFileMarker {
+    kind: LocalFileMarkerKind;
+    path: string;
+}
+
+export interface ExtractedLocalFileMarkers {
+    text: string;
+    markers: LocalFileMarker[];
+}
+
 export function isImageAttachment(contentType: string | null | undefined, fileName: string | null | undefined): boolean {
     if ((contentType || '').toLowerCase().startsWith('image/')) return true;
     return IMAGE_EXT_PATTERN.test(fileName || '');
@@ -45,6 +57,64 @@ export function buildPromptWithAttachmentUrls(prompt: string, attachments: Inbou
     );
 
     return `${base}\n\n[Discord Attached Images]\n${lines.join('\n\n')}\n\nPlease refer to the attached images above in your response.`;
+}
+
+const LOCAL_FILE_MARKER_PATTERN = /\[\[\s*(image|file|video)\s*:\s*([^\]]+?)\s*\]\]/gi;
+const URL_PATTERN = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+export function extractLocalFileMarkers(text: string): ExtractedLocalFileMarkers {
+    const markers: LocalFileMarker[] = [];
+    const cleaned = (text || '').replace(LOCAL_FILE_MARKER_PATTERN, (match, rawKind: string, rawPath: string) => {
+        const candidatePath = (rawPath || '').trim();
+        if (!candidatePath || URL_PATTERN.test(candidatePath) || !path.isAbsolute(candidatePath)) {
+            return match;
+        }
+
+        markers.push({
+            kind: rawKind.toLowerCase() as LocalFileMarkerKind,
+            path: candidatePath,
+        });
+        return '';
+    });
+
+    const visibleText = cleaned
+        .split('\n')
+        .map((line) => line.trimEnd())
+        .filter((line) => line.trim().length > 0)
+        .join('\n')
+        .trim();
+
+    return { text: visibleText, markers };
+}
+
+export async function toDiscordFileAttachments(
+    markers: LocalFileMarker[],
+    maxAttachments = 10,
+): Promise<AttachmentBuilder[]> {
+    const attachments: AttachmentBuilder[] = [];
+    const seen = new Set<string>();
+
+    for (const marker of markers) {
+        if (attachments.length >= maxAttachments) break;
+        if (!marker.path || seen.has(marker.path)) continue;
+        seen.add(marker.path);
+
+        try {
+            const stat = await fs.stat(marker.path);
+            if (!stat.isFile()) continue;
+
+            const buffer = await fs.readFile(marker.path);
+            if (buffer.length === 0) continue;
+
+            const rawName = path.basename(marker.path) || `${marker.kind}-${attachments.length + 1}`;
+            const name = sanitizeFileName(rawName);
+            attachments.push(new AttachmentBuilder(buffer, { name }));
+        } catch (error: any) {
+            logger.warn(`[ImageBridge] Local ${marker.kind} marker skipped (${marker.path})`, error?.message || error);
+        }
+    }
+
+    return attachments;
 }
 
 export async function downloadInboundImageAttachments(message: Message): Promise<InboundImageAttachment[]> {
