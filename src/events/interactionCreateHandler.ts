@@ -1197,14 +1197,14 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
                 return;
             }
 
-            if (!interaction.guild) {
-                await interaction.reply({ content: 'This can only be used in a server.', flags: MessageFlags.Ephemeral }).catch(logger.error);
-                return;
-            }
-
             try {
                 await interaction.deferUpdate();
-                await deps.wsHandler.handleSelectMenu(interaction, interaction.guild);
+                if (interaction.guild) {
+                    await deps.wsHandler.handleSelectMenu(interaction, interaction.guild);
+                } else {
+                    // DM: bind the selected project directly to this DM channel.
+                    await deps.wsHandler.handleSelectMenuDM(interaction);
+                }
             } catch (error) {
                 logger.error('Workspace selection error:', error);
             }

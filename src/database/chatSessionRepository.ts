@@ -176,6 +176,16 @@ export class ChatSessionRepository {
         return result.changes > 0;
     }
 
+    /**
+     * Reset a session so the next message opens a fresh Antigravity conversation
+     * (used by `/new` in DMs, where there is no channel to recreate).
+     */
+    public resetForNewChat(channelId: string): boolean {
+        return this.db.prepare(
+            'UPDATE chat_sessions SET is_renamed = 0, conversation_id = NULL WHERE channel_id = ?'
+        ).run(channelId).changes > 0;
+    }
+
     public setConversationId(channelId: string, conversationId: string): boolean {
         const result = this.db.prepare(
             'UPDATE chat_sessions SET conversation_id = ? WHERE channel_id = ?'

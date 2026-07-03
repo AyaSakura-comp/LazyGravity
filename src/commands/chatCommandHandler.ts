@@ -53,7 +53,15 @@ export class ChatCommandHandler {
     async handleNew(interaction: ChatInputCommandInteraction): Promise<void> {
         const guild = interaction.guild;
         if (!guild) {
-            await interaction.editReply({ content: t('⚠️ This command can only be used in a server.') });
+            // DM: no channel to create — just reset this DM's session so the next
+            // message opens a fresh Antigravity conversation.
+            const dmSession = this.chatSessionRepo.findByChannelId(interaction.channelId);
+            if (!dmSession) {
+                await interaction.editReply({ content: t('ℹ️ Send a message first to start a session; then `/new` resets it.') });
+                return;
+            }
+            this.chatSessionRepo.resetForNewChat(interaction.channelId);
+            await interaction.editReply({ content: t('✅ New conversation will start on your next message.') });
             return;
         }
 

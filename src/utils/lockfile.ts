@@ -91,10 +91,20 @@ export function acquireLock(): () => void {
         releaseLock();
         process.exit(0);
     });
-    process.on('uncaughtException', (err) => {
+    process.on('uncaughtException', (err: any) => {
+        // Discord REST errors (e.g. 403 Missing Permissions when the bot tries to
+        // reply in a channel it can't post in — common in DM / limited-channel
+        // setups) are recoverable. Log and keep running instead of crashing.
+        if (err && (err.rawError !== undefined || (typeof err.name === 'string' && err.name.includes('DiscordAPIError')))) {
+            logger.error('Non-fatal Discord API error (ignored):', err?.message ?? err);
+            return;
+        }
         logger.error('Uncaught exception:', err);
         releaseLock();
         process.exit(1);
+    });
+    process.on('unhandledRejection', (reason: any) => {
+        logger.error('Unhandled promise rejection (ignored):', reason?.message ?? reason);
     });
 
     return releaseLock;

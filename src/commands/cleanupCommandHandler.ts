@@ -76,7 +76,7 @@ export class CleanupCommandHandler {
         const guild = interaction.guild;
         if (!guild) {
             await interaction.editReply({
-                content: t('⚠️ This command can only be used in a server.'),
+                content: t('ℹ️ `/cleanup` removes inactive **session channels** in a server — there are no channels to clean up in a DM.'),
             });
             return;
         }

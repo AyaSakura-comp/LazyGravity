@@ -256,7 +256,13 @@ export async function registerSlashCommands(
 ): Promise<void> {
     const rest = new REST({ version: '10' }).setToken(token);
 
-    const commandData = slashCommands.map((cmd) => cmd.toJSON());
+    // Allow commands in DMs: contexts 0=Guild, 1=Bot DM, 2=Private channel.
+    // integration_types [0]=Guild install (DM works via a shared server; no user-install needed).
+    const commandData = slashCommands.map((cmd) => ({
+        ...cmd.toJSON(),
+        contexts: [0, 1, 2],
+        integration_types: [0],
+    }));
 
     try {
         if (guildId) {

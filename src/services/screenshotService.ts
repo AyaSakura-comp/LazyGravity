@@ -71,7 +71,11 @@ export class ScreenshotService {
                 params.captureBeyondViewport = options.captureBeyondViewport;
             }
 
-            const result = await this.cdpService.callWithRetry('Page.captureScreenshot', params);
+            // Serialize with prompt submission so a /screenshot landing mid-send
+            // can't disrupt the type+Enter (which would leave the message unsent).
+            const result = await this.cdpService.runExclusive(
+                () => this.cdpService.callWithRetry('Page.captureScreenshot', params),
+            );
 
             const base64Data: string = result?.data ?? '';
 
@@ -118,7 +122,11 @@ export class ScreenshotService {
                 params.clip = options.clip;
             }
 
-            const result = await this.cdpService.callWithRetry('Page.captureScreenshot', params);
+            // Serialize with prompt submission so a /screenshot landing mid-send
+            // can't disrupt the type+Enter (which would leave the message unsent).
+            const result = await this.cdpService.runExclusive(
+                () => this.cdpService.callWithRetry('Page.captureScreenshot', params),
+            );
             return result?.data ?? null;
         } catch (error) {
             logger.error('[ScreenshotService] Error while getting Base64:', error);

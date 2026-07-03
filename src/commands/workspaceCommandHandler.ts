@@ -240,9 +240,119 @@ export class WorkspaceCommandHandler {
     }
 
     /**
+     * Bind a channel to the DEFAULT workspace (the base dir, e.g. ~/src) when no
+     * project is chosen — so the user can chat immediately. Opens that folder in
+     * Antigravity. Returns the resolved workspace path.
+     */
+    public async ensureDefaultBinding(channelId: string, userId: string): Promise<string> {
+        const workspaceName = '.'; // resolves to the workspace base dir (e.g. ~/src)
+        const resolved = this.workspaceService.getWorkspacePath(workspaceName);
+        if (!this.bindingRepo.findByChannelId(channelId)) {
+            this.bindingRepo.upsert({ channelId, workspacePath: workspaceName, guildId: 'dm' });
+            this.chatSessionRepo.create({
+                channelId,
+                categoryId: channelId,
+                workspacePath: workspaceName,
+                sessionNumber: 1,
+                guildId: 'dm',
+            });
+            await this.onSessionChannelCreated?.(workspaceName, channelId, channelId, userId);
+        }
+        return resolved;
+    }
+
+    /**
+     * DM variant of handleSelectMenu: bind the selected project directly to the
+     * current DM channel (no server category/channel is created in DMs).
+     */
+    public async handleSelectMenuDM(
+        interaction: StringSelectMenuInteraction,
+    ): Promise<void> {
+        const respond = async (payload: Record<string, unknown>) => {
+            if (typeof interaction.editReply === 'function') {
+                await interaction.editReply(payload);
+                return;
+            }
+            await interaction.update(payload);
+        };
+        const workspacePath = interaction.values[0];
+
+        if (!this.workspaceService.exists(workspacePath)) {
+            await respond({
+                content: t(`❌ Project \`${workspacePath}\` not found.`),
+                embeds: [],
+                components: [],
+            });
+            return;
+        }
+
+        const channelId = interaction.channelId;
+        const guildId = 'dm';
+
+        // Re-bind cleanly if this DM was previously bound.
+        this.chatSessionRepo.deleteByChannelId(channelId);
+        this.bindingRepo.deleteByChannelId(channelId);
+
+        this.bindingRepo.upsert({ channelId, workspacePath, guildId });
+        this.chatSessionRepo.create({
+            channelId,
+            categoryId: channelId,
+            workspacePath,
+            sessionNumber: 1,
+            guildId,
+        });
+
+        await this.onSessionChannelCreated?.(
+            workspacePath,
+            channelId,
+            channelId,
+            interaction.user.id,
+        );
+
+        const fullPath = this.workspaceService.getWorkspacePath(workspacePath);
+        const embed = new EmbedBuilder()
+            .setTitle('📁 Projects')
+            .setColor(0x00AA00)
+            .setDescription(t(`✅ Bound this DM to **${workspacePath}**\nSend a message to start.`))
+            .addFields({ name: t('Full Path'), value: `\`${fullPath}\`` })
+            .setTimestamp();
+
+        await respond({ embeds: [embed], components: [] });
+    }
+
+    /**
      * /project create <name> -- Create a new project directory,
      * auto-create a category + session-1 channel and bind them.
      */
+    /**
+     * DM variant of /project create: create the project directory and bind it
+     * directly to the DM channel (no server category/channel is created).
+     */
+    public async handleCreateDM(interaction: ChatInputCommandInteraction): Promise<void> {
+        const name = interaction.options.getString('name', true);
+        let fullPath: string;
+        try {
+            fullPath = this.workspaceService.validatePath(name);
+        } catch (e: any) {
+            await interaction.editReply({ content: t(`❌ Invalid project name: ${e.message}`) });
+            return;
+        }
+        if (!this.workspaceService.exists(name)) {
+            fs.mkdirSync(fullPath, { recursive: true });
+        }
+        const channelId = interaction.channelId;
+        this.chatSessionRepo.deleteByChannelId(channelId);
+        this.bindingRepo.deleteByChannelId(channelId);
+        this.bindingRepo.upsert({ channelId, workspacePath: name, guildId: 'dm' });
+        this.chatSessionRepo.create({
+            channelId, categoryId: channelId, workspacePath: name, sessionNumber: 1, guildId: 'dm',
+        });
+        await this.onSessionChannelCreated?.(name, channelId, channelId, interaction.user.id);
+        await interaction.editReply({
+            content: t(`✅ Created & bound this DM to **${name}** (\`${fullPath}\`). Send a message to start.`),
+        });
+    }
+
     public async handleCreate(
         interaction: ChatInputCommandInteraction,
         guild: Guild,

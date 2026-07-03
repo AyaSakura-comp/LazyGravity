@@ -146,6 +146,22 @@ export class CdpService extends EventEmitter {
     private ports: number[];
     private isConnectedFlag: boolean = false;
     private ws: WebSocket | null = null;
+
+    // Serializes UI-interaction sequences (prompt submit, screenshot) so a
+    // /screenshot landing mid-submit can't disrupt the type+Enter and leave the
+    // message unsent. Short critical sections only — not the whole agent response.
+    private _uiLock: Promise<void> = Promise.resolve();
+    public async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+        const prev = this._uiLock;
+        let release!: () => void;
+        this._uiLock = new Promise<void>((r) => { release = r; });
+        await prev.catch(() => undefined);
+        try {
+            return await fn();
+        } finally {
+            release();
+        }
+    }
     private contexts: CdpContext[] = [];
     private pendingCalls = new Map<number, { resolve: Function, reject: Function, timeoutId: NodeJS.Timeout }>();
     private idCounter = 1;
@@ -1456,6 +1472,7 @@ export class CdpService extends EventEmitter {
     }
 
     private async injectMessageCore(text: string, imageFilePaths?: string[]): Promise<InjectResult> {
+      return this.runExclusive(async () => {
         const focusResult = await this.waitForChatInputReady();
         if (!focusResult.ok) {
             return { ok: false, error: focusResult.error || 'Chat input field not found' };
@@ -1475,11 +1492,19 @@ export class CdpService extends EventEmitter {
         await new Promise(r => setTimeout(r, 200));
         await this.pressEnterToSend();
 
+        // Fallback: sometimes Enter is swallowed — e.g. a "/" in the message opens
+        // Antigravity's slash-command menu, or focus shifted — leaving the text
+        // sitting unsent. If the input still has text, dismiss any popup and click
+        // the Send button.
+        await new Promise(r => setTimeout(r, 250));
+        await this.ensureSubmitted(focusResult.contextId).catch(() => {});
+
         return {
             ok: true,
             method: 'enter',
             contextId: focusResult.contextId,
         };
+      });
     }
 
     private async retryInjectOnce(
@@ -1571,6 +1596,35 @@ export class CdpService extends EventEmitter {
             windowsVirtualKeyCode: 13,
             nativeVirtualKeyCode: 13,
         });
+    }
+
+    /**
+     * If the composer input still contains text after pressing Enter (Enter got
+     * swallowed by a slash-command menu / autocomplete, or focus was lost), close
+     * any open popup and click the Send button so the message actually goes out.
+     */
+    private async ensureSubmitted(contextId: number | null | undefined): Promise<void> {
+        const script = `(() => {
+            const editables = Array.from(document.querySelectorAll('[contenteditable="true"], textarea'))
+                .filter(e => e.offsetParent !== null);
+            const input = editables.find(e => ((e.innerText || e.value || '').trim().length > 0));
+            if (!input) return 'sent';
+            // Dismiss any open slash/autocomplete popup so Enter/click isn't hijacked.
+            input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+            const btns = Array.from(document.querySelectorAll('button'))
+                .filter(b => b.offsetParent !== null && !b.disabled);
+            const send = btns.find(b => b.querySelector(
+                'svg.lucide-arrow-right, svg.lucide-arrow-up, svg.lucide-send, svg[class*="arrow-up"], svg[class*="send"]'));
+            if (send) { send.click(); return 'clicked-send'; }
+            return 'no-send-button';
+        })()`;
+        const params: any = { expression: script, returnByValue: true };
+        if (contextId !== null && contextId !== undefined) params.contextId = contextId;
+        const res = await this.call('Runtime.evaluate', params);
+        const val = res?.result?.value;
+        if (val && val !== 'sent') {
+            logger.info(`[CdpService] send fallback: ${val}`);
+        }
     }
 
     /**

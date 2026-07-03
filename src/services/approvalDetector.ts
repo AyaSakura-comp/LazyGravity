@@ -38,8 +38,8 @@ const DETECT_APPROVAL_SCRIPT = `(() => {
         '常に許可',
         'この会話を許可',
     ];
-    const ALLOW_PATTERNS = ['allow', 'permit', '許可', '承認', '確認'];
-    const DENY_PATTERNS = ['deny', '拒否', 'decline'];
+    const ALLOW_PATTERNS = ['allow', 'permit', 'accept', 'approve', 'proceed', '許可', '承認', '確認'];
+    const DENY_PATTERNS = ['deny', 'reject', 'block', 'decline', '拒否', '拒絶', 'キャンセル'];
 
     const normalize = (text) => (text || '').toLowerCase().replace(/\\s+/g, ' ').trim();
 
@@ -56,6 +56,16 @@ const DETECT_APPROVAL_SCRIPT = `(() => {
             const t = normalize(btn.textContent || '');
             const isAlways = ALWAYS_ALLOW_PATTERNS.some(p => t.includes(p));
             return !isAlways && ALLOW_PATTERNS.some(p => t.includes(p));
+        }) || null;
+    }
+
+    // Fallback: some prompts (e.g. Antigravity's browser "act on <domain>") only
+    // offer "Always Allow" + "Deny" (no plain Allow). Treat the always-allow
+    // button as the approve button so auto-accept can act on it.
+    if (!approveBtn) {
+        approveBtn = allButtons.find(btn => {
+            const t = normalize(btn.textContent || '');
+            return ALWAYS_ALLOW_PATTERNS.some(p => t.includes(p));
         }) || null;
     }
 

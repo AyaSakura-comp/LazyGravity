@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 import type { LogLevel } from '../utils/logger';
 import { logBuffer } from '../utils/logBuffer';
 import {
-    Client, GatewayIntentBits, Events, Message,
+    Client, GatewayIntentBits, Events, Message, Partials,
     ChatInputCommandInteraction, Interaction,
     AttachmentBuilder, ButtonBuilder, ButtonStyle,
     ActionRowBuilder, EmbedBuilder,
@@ -1152,7 +1152,11 @@ export const startBot = async (cliLogLevel?: LogLevel) => {
             GatewayIntentBits.Guilds,
             GatewayIntentBits.GuildMessages,
             GatewayIntentBits.MessageContent,
-        ]
+            GatewayIntentBits.DirectMessages,
+        ],
+        // DMs arrive as partial channels/messages; without these the
+        // MessageCreate handler never fires for direct messages.
+        partials: [Partials.Channel, Partials.Message],
     });
 
     const joinHandler = new JoinCommandHandler(
@@ -1714,7 +1718,16 @@ async function autoRenameChannel(
     if (!session || session.isRenamed) return;
 
     const guild = message.guild;
-    if (!guild) return;
+    if (!guild) {
+        // DM: the channel can't be renamed, but we still mark the session as
+        // "established" (is_renamed=1). Otherwise the message handler would open
+        // a BRAND-NEW Antigravity chat on every message, losing all context.
+        // Setting the display name flips is_renamed so follow-up DMs continue
+        // the SAME conversation.
+        const label = (message.content || 'DM chat').replace(/\s+/g, ' ').trim().slice(0, 40) || 'DM chat';
+        chatSessionRepo.updateDisplayName(message.channelId, label);
+        return;
+    }
 
     try {
         const title = await titleGenerator.generateTitle(message.content, cdp);
@@ -2212,11 +2225,11 @@ export async function handleSlashInteraction(
         case 'project': {
             const wsSub = interaction.options.getSubcommand(false);
             if (wsSub === 'create') {
-                if (!interaction.guild) {
-                    await interaction.editReply({ content: 'This command can only be used in a server.' });
-                    break;
+                if (interaction.guild) {
+                    await wsHandler.handleCreate(interaction, interaction.guild);
+                } else {
+                    await wsHandler.handleCreateDM(interaction);
                 }
-                await wsHandler.handleCreate(interaction, interaction.guild);
             } else if (wsSub === 'account') {
                 const requested = interaction.options.getString('name');
                 const names = listAccountNames(antigravityAccounts);

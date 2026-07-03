@@ -132,7 +132,7 @@ export class JoinCommandHandler {
         const guild = interaction.guild;
 
         if (!guild) {
-            await interaction.editReply({ content: t('⚠️ This command can only be used in a server.') });
+            await interaction.editReply({ content: t('ℹ️ `/join` connects a **server channel** to a project. In a DM you already are your session — just send a message (or use `/project` to switch project).') });
             return;
         }
 

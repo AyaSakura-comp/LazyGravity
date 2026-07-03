@@ -301,7 +301,16 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                 return;
             }
 
-            const workspacePath = deps.wsHandler.getWorkspaceForChannel(message.channelId);
+            let workspacePath = deps.wsHandler.getWorkspaceForChannel(message.channelId);
+            if (!workspacePath) {
+                // No project bound → fall back to a default workspace (the base
+                // dir, e.g. ~/src) so the user can just chat without picking a
+                // project. Opens that folder in Antigravity and binds this channel.
+                workspacePath = await deps.wsHandler.ensureDefaultBinding(
+                    message.channelId,
+                    message.author.id,
+                ).catch(() => undefined);
+            }
 
             try {
                 if (workspacePath) {
