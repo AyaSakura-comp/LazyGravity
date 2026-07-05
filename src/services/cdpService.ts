@@ -1227,7 +1227,7 @@ export class CdpService extends EventEmitter {
             try {
                 this.contexts = [];
                 if (this.currentWorkspacePath) {
-                    await this.discoverAndConnectForWorkspace(this.currentWorkspacePath);
+                    await this.openWorkspace(this.currentWorkspacePath);
                 } else {
                     await this.discoverTarget();
                     await this.connect();
@@ -1302,7 +1302,7 @@ export class CdpService extends EventEmitter {
         if (!this.reconnectOnDemandPromise) {
             this.reconnectOnDemandPromise = (async () => {
                 try {
-                    await this.discoverAndConnectForWorkspace(this.currentWorkspacePath!);
+                    await this.openWorkspace(this.currentWorkspacePath!);
                 } catch {
                     throw new Error('WebSocket is not connected');
                 } finally {

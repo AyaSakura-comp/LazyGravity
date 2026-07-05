@@ -74,7 +74,7 @@ describe('CdpService - callWithRetry (Issue #55)', () => {
             (cdpService as any).currentWorkspacePath = '/tmp/my-workspace';
 
             // After reconnect, simulate connected state
-            jest.spyOn(cdpService, 'discoverAndConnectForWorkspace').mockImplementation(async () => {
+            jest.spyOn(cdpService, 'openWorkspace').mockImplementation(async () => {
                 (cdpService as any).isConnectedFlag = true;
                 (cdpService as any).ws = mockWsInstance;
                 mockWsInstance.send.mockImplementation((data: any) => {
@@ -91,7 +91,7 @@ describe('CdpService - callWithRetry (Issue #55)', () => {
 
             const result = await cdpService.callWithRetry('Page.captureScreenshot', {});
             expect(result).toEqual({ data: 'screenshot-data' });
-            expect(cdpService.discoverAndConnectForWorkspace).toHaveBeenCalledWith('/tmp/my-workspace');
+            expect(cdpService.openWorkspace).toHaveBeenCalledWith('/tmp/my-workspace');
         });
 
         it('throws immediately for non-connection errors (no retry)', async () => {
@@ -113,14 +113,14 @@ describe('CdpService - callWithRetry (Issue #55)', () => {
             cdpService = new CdpService({ maxReconnectAttempts: 0 });
             (cdpService as any).currentWorkspacePath = '/tmp/my-workspace';
 
-            jest.spyOn(cdpService, 'discoverAndConnectForWorkspace').mockResolvedValue(true);
+            jest.spyOn(cdpService, 'openWorkspace').mockResolvedValue(true);
             jest.spyOn(cdpService, 'call')
                 .mockRejectedValueOnce(new Error('WebSocket disconnected'))
                 .mockResolvedValueOnce({ data: 'screenshot-data' });
 
             const result = await cdpService.callWithRetry('Page.captureScreenshot', {});
             expect(result).toEqual({ data: 'screenshot-data' });
-            expect(cdpService.discoverAndConnectForWorkspace).toHaveBeenCalledWith('/tmp/my-workspace');
+            expect(cdpService.openWorkspace).toHaveBeenCalledWith('/tmp/my-workspace');
         });
 
         it('throws when reconnect fails', async () => {
@@ -129,7 +129,7 @@ describe('CdpService - callWithRetry (Issue #55)', () => {
             (cdpService as any).ws = null;
             (cdpService as any).currentWorkspacePath = '/tmp/my-workspace';
 
-            jest.spyOn(cdpService, 'discoverAndConnectForWorkspace').mockRejectedValue(
+            jest.spyOn(cdpService, 'openWorkspace').mockRejectedValue(
                 new Error('No target found')
             );
 
@@ -167,7 +167,7 @@ describe('CdpService - callWithRetry (Issue #55)', () => {
             cdpService = new CdpService({ maxReconnectAttempts: 0 });
             (cdpService as any).currentWorkspacePath = '/tmp/ws';
 
-            jest.spyOn(cdpService, 'discoverAndConnectForWorkspace').mockImplementation(async () => {
+            jest.spyOn(cdpService, 'openWorkspace').mockImplementation(async () => {
                 await new Promise(r => setTimeout(r, 200));
                 return true;
             });
@@ -184,7 +184,7 @@ describe('CdpService - callWithRetry (Issue #55)', () => {
             let resolveConnect: () => void;
             const connectPromise = new Promise<void>(r => { resolveConnect = r; });
 
-            jest.spyOn(cdpService, 'discoverAndConnectForWorkspace').mockImplementation(async () => {
+            jest.spyOn(cdpService, 'openWorkspace').mockImplementation(async () => {
                 await connectPromise;
                 return true;
             });
@@ -198,8 +198,8 @@ describe('CdpService - callWithRetry (Issue #55)', () => {
 
             await Promise.all([p1, p2]);
 
-            // discoverAndConnectForWorkspace should only be called once
-            expect(cdpService.discoverAndConnectForWorkspace).toHaveBeenCalledTimes(1);
+            // openWorkspace should only be called once
+            expect(cdpService.openWorkspace).toHaveBeenCalledTimes(1);
         });
     });
 
