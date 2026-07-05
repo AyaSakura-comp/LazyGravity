@@ -80,6 +80,20 @@ export function htmlToDiscordMarkdown(html: string): string {
         (_m, text) => `\`${stripTags(text).trim()}\``,
     );
 
+    // Handle anchors <a href="URL">TEXT</a> → [TEXT](URL) so links stay clickable
+    // in Discord embed descriptions (masked links render there). Runs BEFORE the
+    // title-attribute handler below, which would otherwise strip the href.
+    result = result.replace(
+        /<a\b[^>]*\bhref=(?:"([^"]*)"|'([^']*)')[^>]*>([\s\S]*?)<\/a>/gi,
+        (_m, hrefD, hrefS, text) => {
+            const url = (hrefD ?? hrefS ?? '').trim();
+            const label = stripTags(text).replace(/\s+/g, ' ').trim();
+            if (!url || /^javascript:/i.test(url)) return label;
+            if (!label || label === url) return url;
+            return `[${label}](${url})`;
+        },
+    );
+
     // Handle elements with title attribute containing file paths
     // e.g. <div title="src/bot/index.ts">:54</div> → src/bot/index.ts:54
     result = result.replace(

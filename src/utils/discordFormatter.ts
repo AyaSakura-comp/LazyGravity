@@ -77,6 +77,13 @@ function isUiChromeLine(line: string): boolean {
  *  Consumes one trailing space so the replacement `\`ref\`` doesn't leave a double space. */
 const FILE_REF_REGEX = /(?<![`/\\])(\b[a-zA-Z][\w.-]*(?:\/[\w.-]+)+(?::\d+(?:-\d+)?)?)\s?(?!`)/g;
 
+/** URLs and markdown links, protected from file-ref wrapping (see wrapFileReferences). */
+const MD_LINK_REGEX = /\[[^\]]*\]\([^)\s]+\)/g;
+const BARE_URL_REGEX = /(?:https?|ftp):\/\/[^\s<>`]+/gi;
+/** NUL-delimited placeholder token, e.g. \0 12 \0 */
+const SENTINEL = String.fromCharCode(0);
+const SENTINEL_RE = new RegExp(SENTINEL + '(\\d+)' + SENTINEL, 'g');
+
 /**
  * Format text for Discord Embed display.
  * Wraps table lines and tree lines in code blocks.
@@ -137,9 +144,26 @@ export function formatForDiscord(text: string): string {
 
 /**
  * Wrap file references (e.g. src/bot/index.ts:54) in inline code backticks.
+ *
+ * URLs and markdown links are protected first: the path-like part of a URL
+ * (e.g. github.com/AyaSakura-comp/<hash>) otherwise matches FILE_REF_REGEX and
+ * gets wrapped in backticks, corrupting the link — a stray backtick lands in the
+ * middle and Discord url-encodes the trailing one to %60.
  */
 function wrapFileReferences(line: string): string {
-    return line.replace(FILE_REF_REGEX, '`$1`');
+    const protectedSpans: string[] = [];
+    const stash = (m: string): string => {
+        protectedSpans.push(m);
+        // NUL-delimited index; contains no '/', so it can't match FILE_REF_REGEX.
+        return SENTINEL + (protectedSpans.length - 1) + SENTINEL;
+    };
+
+    const out = line
+        .replace(MD_LINK_REGEX, stash)  // [text](url) — protect wholesale
+        .replace(BARE_URL_REGEX, stash) // bare URLs
+        .replace(FILE_REF_REGEX, '`$1`');
+
+    return out.replace(SENTINEL_RE, (_m, i) => protectedSpans[Number(i)] ?? '');
 }
 
 /** Check if a line is an MCP tool call format (server / tool_name) */
