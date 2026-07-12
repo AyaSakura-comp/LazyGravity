@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { readFile } from 'fs/promises';
 import * as https from 'https';
 
 const execAsync = promisify(exec);
@@ -25,26 +26,57 @@ export class QuotaService {
     private cachedCsrfToken: string | null = null;
     private cachedPid: number | null = null;
 
-    private async getUnixProcessInfo(): Promise<{pid: number, csrf_token: string} | null> {
+    /**
+     * Read a process's full command line.
+     * Linux: /proc/<pid>/cmdline (NUL-separated). macOS/other: fall back to `ps`.
+     */
+    private async getCmdline(pid: number): Promise<string | null> {
         try {
-            // macOS
-            const { stdout } = await execAsync('pgrep -fl language_server');
-            const lines = stdout.split('\n');
-            for (const line of lines) {
-                if (line.includes('--csrf_token')) {
-                    const parts = line.trim().split(/\s+/);
-                    const pid = parseInt(parts[0], 10);
-                    const cmd = line.substring(parts[0].length).trim();
-                    const tokenMatch = cmd.match(/--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
-                    if (pid && tokenMatch && tokenMatch[1]) {
-                        return { pid, csrf_token: tokenMatch[1] };
-                    }
+            const buf = await readFile(`/proc/${pid}/cmdline`);
+            if (buf && buf.length > 0) {
+                return buf.toString('utf8').replace(/\0/g, ' ').trim();
+            }
+        } catch {
+            // Not Linux (or process gone) — fall through to ps.
+        }
+        try {
+            const { stdout } = await execAsync(`ps -p ${pid} -o command=`);
+            return stdout.trim() || null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Discover every Antigravity language_server process and its --csrf_token.
+     *
+     * NOTE: `pgrep -fl` only prints the (truncated) process name on Linux, so the
+     * previous implementation never saw the args and always failed here. We now
+     * resolve each PID's full cmdline via /proc (Linux) or `ps` (macOS). Antigravity
+     * spawns one language_server per workspace, so we return all candidates and let
+     * fetchQuota() probe each until GetUserStatus returns model configs.
+     */
+    private async getProcessInfos(): Promise<Array<{ pid: number; csrf_token: string }>> {
+        const results: Array<{ pid: number; csrf_token: string }> = [];
+        try {
+            const { stdout } = await execAsync('pgrep -f language_server');
+            const pids = stdout
+                .split('\n')
+                .map((s) => parseInt(s.trim(), 10))
+                .filter((n) => Number.isInteger(n) && n > 0);
+            for (const pid of pids) {
+                const cmd = await this.getCmdline(pid);
+                if (!cmd) continue;
+                // Match --csrf_token but not --extension_server_csrf_token (needs literal `--` prefix).
+                const tokenMatch = cmd.match(/(?:^|\s)--csrf_token[=\s]+([a-zA-Z0-9\-]+)/);
+                if (tokenMatch && tokenMatch[1]) {
+                    results.push({ pid, csrf_token: tokenMatch[1] });
                 }
             }
         } catch (e) {
             logger.error('Failed to get process info:', e);
         }
-        return null;
+        return results;
     }
 
     private async getListeningPorts(pid: number): Promise<number[]> {
@@ -126,45 +158,46 @@ export class QuotaService {
     }
 
     public async fetchQuota(): Promise<ModelQuota[]> {
-        let processInfo = await this.getUnixProcessInfo();
-        if (!processInfo) {
+        // Fast path: a previously working (pid, csrf, port) combination.
+        if (this.cachedPid && this.cachedCsrfToken && this.cachedPort) {
+            try {
+                const data = await this.requestApi(this.cachedPort, this.cachedCsrfToken);
+                const configs = data.clientModelConfigs || [];
+                if (configs.length > 0) return configs;
+            } catch {
+                // Fall through to a full rescan.
+            }
+            this.cachedPort = null;
+        }
+
+        const processes = await this.getProcessInfos();
+        if (processes.length === 0) {
             logger.error('No language_server process found.');
             return [];
         }
 
-        const { pid, csrf_token } = processInfo;
-
-        // If PID or Token changed, invalidate cache
-        if (this.cachedPid !== pid || this.cachedCsrfToken !== csrf_token) {
-            this.cachedPort = null;
-            this.cachedPid = pid;
-            this.cachedCsrfToken = csrf_token;
-        }
-
-        let targetPort = this.cachedPort;
-
-        if (!targetPort) {
+        // GetUserStatus is account-global but only some language_servers answer it,
+        // so probe every process/port until one returns model configs. Remember any
+        // valid-but-empty response as a fallback.
+        let fallback: ModelQuota[] | null = null;
+        for (const { pid, csrf_token } of processes) {
             const ports = await this.getListeningPorts(pid);
             for (const port of ports) {
                 try {
                     const data = await this.requestApi(port, csrf_token);
-                    targetPort = port;
-                    this.cachedPort = port;
-                    return data.clientModelConfigs || [];
-                } catch (e) {
-                    continue; // try next port
+                    const configs = data.clientModelConfigs || [];
+                    if (configs.length > 0) {
+                        this.cachedPid = pid;
+                        this.cachedCsrfToken = csrf_token;
+                        this.cachedPort = port;
+                        return configs;
+                    }
+                    if (fallback === null) fallback = configs;
+                } catch {
+                    continue; // wrong port/proto — try next
                 }
             }
-        } else {
-            try {
-                const data = await this.requestApi(targetPort, csrf_token);
-                return data.clientModelConfigs || [];
-            } catch (e) {
-                // cache might be invalid
-                this.cachedPort = null;
-                return this.fetchQuota();
-            }
         }
-        return [];
+        return fallback ?? [];
     }
 }
