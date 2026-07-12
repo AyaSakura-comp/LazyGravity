@@ -219,6 +219,11 @@ const artifactsCommand = new SlashCommandBuilder()
     .setName('artifacts')
     .setDescription(t('Browse and view generated artifacts from the active session'));
 
+/** /usage command definition */
+const usageCommand = new SlashCommandBuilder()
+    .setName('usage')
+    .setDescription(t('Show Antigravity per-model usage / remaining quota'));
+
 /** Array of commands to register */
 export const slashCommands = [
     helpCommand,
@@ -241,6 +246,7 @@ export const slashCommands = [
     pingCommand,
     logsCommand,
     artifactsCommand,
+    usageCommand,
 ];
 
 /**

@@ -96,6 +96,7 @@ import { sendAccountUI } from '../ui/accountUi';
 import { sendOutputUI, OUTPUT_BTN_EMBED, OUTPUT_BTN_PLAIN } from '../ui/outputUi';
 import { handleScreenshot } from '../ui/screenshotUi';
 import { sendArtifactsUI, sendArtifactPickerUI, ARTIFACT_SELECT_ID } from '../ui/artifactsUi';
+import { buildUsageEmbed, buildUsageText } from '../ui/usageUi';
 import { ArtifactService } from '../services/artifactService';
 import { UserPreferenceRepository, OutputFormat } from '../database/userPreferenceRepository';
 import { inferParentScopeChannelId, listAccountNames, resolveScopedAccountName } from '../utils/accountUtils';
@@ -1897,6 +1898,7 @@ export async function handleSlashInteraction(
                 {
                     name: '🔧 System', value: [
                         '`/status` — Display overall bot status',
+                        '`/usage` — Show per-model usage / remaining quota',
                         '`/autoaccept` — Toggle auto-approve mode for approval dialogs via buttons',
                         '`/account` — Show and switch Antigravity account',
                         '`/logs [lines] [level]` — View recent bot logs',
@@ -2329,11 +2331,25 @@ export async function handleSlashInteraction(
         }
 
         case 'artifacts': {
-            await sendArtifactPickerUI(interaction, { 
-                userPrefRepo, 
-                chatSessionRepo, 
-                artifactService 
+            await sendArtifactPickerUI(interaction, {
+                userPrefRepo,
+                chatSessionRepo,
+                artifactService
             });
+            break;
+        }
+
+        case 'usage': {
+            logger.info(
+                `[UsageCommand] source=slash channel=${interaction.channelId} user=${interaction.user.id}`,
+            );
+            const quotaData = await bridge.quota.fetchQuota();
+            const usageOutputFormat = userPrefRepo?.getOutputFormat(interaction.user.id) ?? 'embed';
+            if (usageOutputFormat === 'plain') {
+                await interaction.editReply({ content: `📊 **Model Usage**\n${buildUsageText(quotaData)}` });
+            } else {
+                await interaction.editReply({ embeds: [buildUsageEmbed(quotaData)] });
+            }
             break;
         }
 
