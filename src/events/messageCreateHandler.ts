@@ -83,6 +83,12 @@ export interface MessageCreateHandlerDeps {
     antigravityAccounts?: { name: string; cdpPort: number }[];
 }
 
+/** Discord thread names cap at 100 chars; derive one from the first line. */
+function buildThreadName(content: string): string {
+    const base = content.replace(/\s+/g, ' ').trim().slice(0, 80);
+    return base.length > 0 ? base : 'Chat';
+}
+
 export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
     const getCurrentCdp = deps.getCurrentCdp ?? getCurrentCdpFn;
     const ensureApprovalDetector = deps.ensureApprovalDetector ?? ensureApprovalDetectorFn;
@@ -132,6 +138,45 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
 
         if (!deps.config.allowedUserIds.includes(message.author.id)) {
             return;
+        }
+
+        // Engagement gate: inside a SERVER (guild) channel, only respond when the
+        // bot is @mentioned or the message is already in a thread. DMs stay
+        // free-form (no mention needed).
+        const botId = message.client.user?.id;
+        const isGuildChannel = !message.channel.isDMBased();
+        const inThread = isGuildChannel && message.channel.isThread();
+        const isMentioned = botId ? message.mentions.users.has(botId) : false;
+        if (isGuildChannel && !inThread && !isMentioned) {
+            return;
+        }
+
+        // Strip a leading bot mention so it doesn't leak into commands/prompts
+        // (e.g. "@bot /status" or "@bot fix this" → "/status" / "fix this").
+        if (botId) {
+            const withoutMention = message.content.replace(new RegExp(`^\\s*<@!?${botId}>\\s*`), '');
+            if (withoutMention !== message.content) {
+                (message as { content: string }).content = withoutMention;
+            }
+        }
+
+        // @mention in a normal server channel → spin the conversation off into
+        // its own thread, so each conversation is an independent "section". The
+        // session and workspace binding key off channelId, so re-pointing it at
+        // the new thread makes everything downstream (routing, output, account
+        // scope, saved chat) scoped to that thread. Later messages inside the
+        // thread engage without a mention (inThread branch above).
+        if (isGuildChannel && !inThread && isMentioned
+            && typeof (message as { startThread?: unknown }).startThread === 'function') {
+            try {
+                const thread = await message.startThread({
+                    name: buildThreadName(message.content),
+                    autoArchiveDuration: 1440,
+                });
+                (message as { channelId: string }).channelId = thread.id;
+            } catch (err) {
+                logger.warn(`[AutoThread] Failed to open thread: ${(err as Error)?.message ?? err}`);
+            }
         }
 
         const parsed = parseMessageContent(message.content);
