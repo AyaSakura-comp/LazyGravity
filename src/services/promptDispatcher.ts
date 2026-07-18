@@ -22,6 +22,11 @@ export interface PromptDispatchOptions {
     extractionMode?: import('../utils/config').ExtractionMode;
     artifactService?: ArtifactService;
     onFullCompletion?: () => void;
+    /** Fires as soon as the prompt has been injected/submitted into Antigravity
+     *  (before the response is monitored). Used to release the per-workspace
+     *  queue immediately so a new message doesn't wait for the previous prompt
+     *  to finish generating. */
+    onSubmitted?: () => void;
     responseTimeoutMs?: number;
 }
 

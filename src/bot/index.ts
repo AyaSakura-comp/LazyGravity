@@ -214,6 +214,9 @@ async function sendPromptToAntigravity(
         userPrefRepo?: UserPreferenceRepository;
         artifactService?: ArtifactService;
         onFullCompletion?: () => void;
+        /** Fires right after the prompt is injected/submitted into Antigravity,
+         *  before response monitoring — lets the caller release the queue early. */
+        onSubmitted?: () => void;
         extractionMode?: ExtractionMode;
         responseTimeoutMs?: number;
     }
@@ -686,6 +689,11 @@ async function sendPromptToAntigravity(
             signalCompletion('inject-failed');
             return;
         }
+
+        // Prompt is now in Antigravity and submitted. Release the per-workspace
+        // queue immediately so the next incoming message is injected right away
+        // instead of waiting for this response to finish generating.
+        options?.onSubmitted?.();
 
         const startTime = Date.now();
         await upsertLiveActivityEmbeds(

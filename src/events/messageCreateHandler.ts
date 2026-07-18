@@ -564,7 +564,8 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                                     clearTimeout(safetyTimer);
                                     const elapsed = Math.round((Date.now() - promptStartTime) / 1000);
                                     logger.info(
-                                        `[Queue:${projectName}] Prompt completed in ${elapsed}s ` +
+                                        `[Queue:${projectName}] Released after ${elapsed}s ` +
+                                        `(on submit — response continues in background) ` +
                                         `(channel: ${message.channelId})`,
                                     );
                                     resolve();
@@ -578,6 +579,10 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                                     artifactService: deps.artifactService,
                                     extractionMode: deps.config.extractionMode,
                                     responseTimeoutMs: deps.config.responseTimeoutMs,
+                                    // Release the queue as soon as the prompt is submitted so the
+                                    // next message doesn't wait for this response to finish.
+                                    // onFullCompletion stays as a fallback (e.g. inject failed).
+                                    onSubmitted: settle,
                                     onFullCompletion: settle,
                                 }).catch((err: any) => {
                                     // sendPromptToAntigravity rejected before onFullCompletion fired
