@@ -123,8 +123,9 @@ describe('messageCreateHandler', () => {
             }));
             await handler(buildGuildMessage({ mentioned: true, content: '<@bot-1> hello' }, { startThread }));
             expect(startThread).toHaveBeenCalledTimes(1);
-            // Session/workspace must key off the NEW thread id, not the parent channel.
-            expect(getWorkspaceForChannel).toHaveBeenCalledWith('thread-1');
+            // Session/workspace must key off the NEW thread id (parent id passed
+            // as the inheritance fallback), not the original parent channel.
+            expect(getWorkspaceForChannel.mock.calls.some((c: unknown[]) => c[0] === 'thread-1')).toBe(true);
         });
 
         it('does NOT open a nested thread when already in a thread', async () => {
@@ -132,6 +133,30 @@ describe('messageCreateHandler', () => {
             const handler = createMessageCreateHandler(buildDeps({ sendPromptToAntigravity: mockSendPromptImmediate() }));
             await handler(buildGuildMessage({ mentioned: false, thread: true, content: 'fix this' }, { startThread }));
             expect(startThread).not.toHaveBeenCalled();
+        });
+
+        it('creates a dedicated thread session when auto-opening a thread', async () => {
+            const ensureThreadSession = jest.fn();
+            const handler = createMessageCreateHandler(buildDeps({
+                sendPromptToAntigravity: mockSendPromptImmediate(),
+                wsHandler: { getWorkspaceForChannel: jest.fn().mockReturnValue('/tmp/proj-a'), ensureThreadSession },
+            }));
+            await handler(buildGuildMessage({ mentioned: true, content: '<@bot-1> hello' }));
+            // thread-1 (the new thread) gets its own session, parented to ch-1.
+            expect(ensureThreadSession).toHaveBeenCalledWith('thread-1', 'ch-1', expect.anything());
+        });
+
+        it('ensures a thread session for messages inside an existing thread', async () => {
+            const ensureThreadSession = jest.fn();
+            const handler = createMessageCreateHandler(buildDeps({
+                sendPromptToAntigravity: mockSendPromptImmediate(),
+                wsHandler: { getWorkspaceForChannel: jest.fn().mockReturnValue('/tmp/proj-a'), ensureThreadSession },
+            }));
+            await handler(buildGuildMessage(
+                { mentioned: false, thread: true, content: 'continue here' },
+                { channel: { id: 'th-9', send: jest.fn().mockResolvedValue(undefined), isDMBased: () => false, isThread: () => true, parentId: 'parent-ch' }, channelId: 'th-9' },
+            ));
+            expect(ensureThreadSession).toHaveBeenCalledWith('th-9', 'parent-ch', expect.anything());
         });
 
         it('processes a DM without any mention (free-form)', async () => {

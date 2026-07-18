@@ -66,6 +66,20 @@ export class ChatCommandHandler {
         }
 
         const channel = interaction.channel;
+
+        // Thread: each thread is its own conversation "section" — /new resets
+        // THIS thread's session (like the DM branch) instead of creating a new
+        // session channel under a category. A thread with no session row yet
+        // will start fresh on its next message anyway, so /new always succeeds.
+        if (channel && 'isThread' in channel && typeof channel.isThread === 'function' && channel.isThread()) {
+            const threadSession = this.chatSessionRepo.findByChannelId(interaction.channelId);
+            if (threadSession) {
+                this.chatSessionRepo.resetForNewChat(interaction.channelId);
+            }
+            await interaction.editReply({ content: t('✅ New conversation will start on your next message.') });
+            return;
+        }
+
         if (!channel || channel.type !== ChannelType.GuildText) {
             await interaction.editReply({ content: t('⚠️ Please execute in a text channel.') });
             return;

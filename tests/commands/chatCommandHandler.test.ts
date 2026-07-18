@@ -62,9 +62,10 @@ describe('ChatCommandHandler', () => {
     });
 
     describe('handleNew()', () => {
-        it('returns an error when executed outside a server', async () => {
+        it('DM without a session: asks the user to send a message first', async () => {
             const interaction = {
                 guild: null,
+                channelId: 'dm-1',
                 editReply: jest.fn().mockResolvedValue(undefined),
             };
 
@@ -72,7 +73,67 @@ describe('ChatCommandHandler', () => {
 
             expect(interaction.editReply).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    content: expect.stringContaining('can only be used in a server'),
+                    content: expect.stringContaining('Send a message first'),
+                })
+            );
+        });
+
+        it('DM with a session: resets it for a fresh conversation', async () => {
+            chatSessionRepo.create({
+                channelId: 'dm-2', categoryId: 'dm-2', workspacePath: 'proj',
+                sessionNumber: 1, guildId: 'dm',
+            });
+            const interaction = {
+                guild: null,
+                channelId: 'dm-2',
+                editReply: jest.fn().mockResolvedValue(undefined),
+            };
+
+            await handler.handleNew(interaction as any);
+
+            expect(interaction.editReply).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: expect.stringContaining('New conversation'),
+                })
+            );
+        });
+
+        it('thread with a session: resets THIS thread instead of demanding a text channel', async () => {
+            chatSessionRepo.create({
+                channelId: 'thread-1', categoryId: 'parent-ch', workspacePath: 'proj',
+                sessionNumber: 1, guildId: 'guild-1',
+            });
+            const interaction = {
+                guild: { id: 'guild-1' },
+                channelId: 'thread-1',
+                channel: { type: 11, isThread: () => true, parentId: 'parent-ch' },
+                user: { id: 'user-1' },
+                editReply: jest.fn().mockResolvedValue(undefined),
+            };
+
+            await handler.handleNew(interaction as any);
+
+            expect(interaction.editReply).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: expect.stringContaining('New conversation'),
+                })
+            );
+        });
+
+        it('thread without a session: still succeeds (next message starts fresh anyway)', async () => {
+            const interaction = {
+                guild: { id: 'guild-1' },
+                channelId: 'thread-2',
+                channel: { type: 11, isThread: () => true, parentId: 'parent-ch' },
+                user: { id: 'user-1' },
+                editReply: jest.fn().mockResolvedValue(undefined),
+            };
+
+            await handler.handleNew(interaction as any);
+
+            expect(interaction.editReply).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: expect.stringContaining('New conversation'),
                 })
             );
         });

@@ -1,5 +1,6 @@
+import { isUserAllowed } from '../utils/access';
 export const withAuth = (userId: string, allowedUserIds: string[], next: () => void): void => {
-    if (allowedUserIds.includes(userId)) {
+    if (isUserAllowed(allowedUserIds, userId)) {
         next();
     }
     return;

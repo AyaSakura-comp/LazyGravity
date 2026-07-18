@@ -35,6 +35,7 @@ import {
 } from '../utils/imageHandler';
 import { listAccountNames, resolveScopedAccountName } from '../utils/accountUtils';
 import { logger } from '../utils/logger';
+import { isUserAllowed } from '../utils/access';
 
 export interface MessageCreateHandlerDeps {
     config: { allowedUserIds: string[]; extractionMode?: import('../utils/config').ExtractionMode; responseTimeoutMs?: number };
@@ -136,13 +137,13 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
     return async (message: Message): Promise<void> => {
         if (message.author.bot) return;
 
-        if (!deps.config.allowedUserIds.includes(message.author.id)) {
+        if (!isUserAllowed(deps.config.allowedUserIds, message.author.id)) {
             return;
         }
 
         // Engagement gate: inside a SERVER (guild) channel, only respond when the
-        // bot is @mentioned or the message is already in a thread. DMs stay
-        // free-form (no mention needed).
+        // bot is @mentioned or the message is already in a thread (threads are
+        // bot conversations — no tag needed there). DMs stay free-form.
         const botId = message.client.user?.id;
         const isGuildChannel = !message.channel.isDMBased();
         const inThread = isGuildChannel && message.channel.isThread();
@@ -166,16 +167,36 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
         // the new thread makes everything downstream (routing, output, account
         // scope, saved chat) scoped to that thread. Later messages inside the
         // thread engage without a mention (inThread branch above).
+        let threadParentId: string | null = inThread ? getParentChannelId(message) : null;
         if (isGuildChannel && !inThread && isMentioned
             && typeof (message as { startThread?: unknown }).startThread === 'function') {
             try {
+                const parentChannelId = message.channelId;
                 const thread = await message.startThread({
                     name: buildThreadName(message.content),
                     autoArchiveDuration: 1440,
                 });
                 (message as { channelId: string }).channelId = thread.id;
+                threadParentId = parentChannelId;
             } catch (err) {
                 logger.warn(`[AutoThread] Failed to open thread: ${(err as Error)?.message ?? err}`);
+            }
+        }
+
+        // Every thread is its own Antigravity conversation: give the thread its
+        // own session row (inheriting the parent's workspace). A fresh row
+        // (is_renamed=0) routes the thread's FIRST message through startNewChat,
+        // while older threads keep their rows/displayName and resume their own
+        // original conversations when you come back to them.
+        if (threadParentId && typeof (deps.wsHandler as { ensureThreadSession?: unknown }).ensureThreadSession === 'function') {
+            try {
+                deps.wsHandler.ensureThreadSession(
+                    message.channelId,
+                    threadParentId,
+                    (message as { guildId?: string | null }).guildId ?? 'guild',
+                );
+            } catch (err) {
+                logger.warn(`[ThreadSession] ensureThreadSession failed: ${(err as Error)?.message ?? err}`);
             }
         }
 
@@ -289,7 +310,7 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                     deps.channelPrefRepo?.setAccountName(message.channelId, requested);
                 }
 
-                const channelWorkspace = deps.wsHandler.getWorkspaceForChannel(message.channelId);
+                const channelWorkspace = deps.wsHandler.getWorkspaceForChannel(message.channelId, getParentChannelId(message));
 
                 logger.info(
                     `[AccountSwitch] source=text channel=${message.channelId} user=${message.author.id} ` +
@@ -346,7 +367,7 @@ export function createMessageCreateHandler(deps: MessageCreateHandlerDeps) {
                 return;
             }
 
-            let workspacePath = deps.wsHandler.getWorkspaceForChannel(message.channelId);
+            let workspacePath = deps.wsHandler.getWorkspaceForChannel(message.channelId, getParentChannelId(message));
             if (!workspacePath) {
                 // No project bound → fall back to a default workspace (the base
                 // dir, e.g. ~/src) so the user can just chat without picking a

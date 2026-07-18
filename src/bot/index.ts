@@ -1788,7 +1788,7 @@ export async function handleSlashInteraction(
             accounts: antigravityAccounts,
         });
     const getChannelWorkspacePath = (): string | undefined =>
-        wsHandler.getWorkspaceForChannel(interaction.channelId);
+        wsHandler.getWorkspaceForChannel(interaction.channelId, parentChannelId);
     const getChannelCdp = (): CdpService | null =>
         (() => {
             const workspacePath = getChannelWorkspacePath();

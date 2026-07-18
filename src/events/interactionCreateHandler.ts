@@ -11,6 +11,7 @@ import {
 
 import { t } from '../utils/i18n';
 import { logger } from '../utils/logger';
+import { isUserAllowed } from '../utils/access';
 import { disableAllButtons } from '../utils/discordButtonUtils';
 import { TEMPLATE_BTN_PREFIX, parseTemplateButtonId } from '../ui/templateUi';
 import {
@@ -188,7 +189,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
 
     return async (interaction: Interaction): Promise<void> => {
         if (interaction.isAutocomplete()) {
-            if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+            if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
                 await interaction.respond([]).catch(logger.error);
                 return;
             }
@@ -227,7 +228,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
         }
 
         if (interaction.isButton()) {
-            if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+            if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
                 await interaction.reply({ content: t('You do not have permission.'), flags: MessageFlags.Ephemeral }).catch(logger.error);
                 return;
             }
@@ -892,7 +893,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
         }
 
         if (interaction.isStringSelectMenu() && interaction.customId === 'mode_select') {
-            if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+            if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
                 await interaction.reply({ content: t('You do not have permission.'), flags: MessageFlags.Ephemeral }).catch(logger.error);
                 return;
             }
@@ -937,7 +938,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
         }
 
         if (interaction.isStringSelectMenu() && interaction.customId === ACCOUNT_SELECT_ID) {
-            if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+            if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
                 await interaction.reply({ content: t('You do not have permission.'), flags: MessageFlags.Ephemeral }).catch(logger.error);
                 return;
             }
@@ -1018,7 +1019,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
         }
 
         if (interaction.isStringSelectMenu() && isSessionSelectId(interaction.customId)) {
-            if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+            if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
                 await interaction.reply({ content: t('You do not have permission.'), flags: MessageFlags.Ephemeral }).catch(logger.error);
                 return;
             }
@@ -1045,7 +1046,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
         }
 
         if (interaction.isStringSelectMenu() && interaction.customId === ARTIFACT_SELECT_ID) {
-            if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+            if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
                 await interaction.reply({ content: t('You do not have permission.'), flags: MessageFlags.Ephemeral }).catch(logger.error);
                 return;
             }
@@ -1192,7 +1193,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
         }
 
         if (interaction.isStringSelectMenu() && isProjectSelectId(interaction.customId)) {
-            if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+            if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
                 await interaction.reply({ content: t('You do not have permission.'), flags: MessageFlags.Ephemeral }).catch(logger.error);
                 return;
             }
@@ -1215,7 +1216,7 @@ export function createInteractionCreateHandler(deps: InteractionCreateHandlerDep
 
         const commandInteraction = interaction as ChatInputCommandInteraction;
 
-        if (!deps.config.allowedUserIds.includes(interaction.user.id)) {
+        if (!isUserAllowed(deps.config.allowedUserIds, interaction.user.id)) {
             await commandInteraction.reply({
                 content: 'You do not have permission to use this command.',
                 flags: MessageFlags.Ephemeral,

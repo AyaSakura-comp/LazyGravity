@@ -293,5 +293,23 @@ describe('WorkspaceCommandHandler', () => {
             const result = handler.getWorkspaceForChannel('ch-1');
             expect(result).toBeUndefined();
         });
+
+        it('inherits the parent channel binding when a thread has none of its own', () => {
+            bindingRepo.create({ channelId: 'parent-ch', workspacePath: 'parent-proj', guildId: 'guild-1' });
+            // thread-1 is unbound → should resolve via its parent channel
+            const result = handler.getWorkspaceForChannel('thread-1', 'parent-ch');
+            expect(result).toBe(path.join(tmpDir, 'parent-proj'));
+        });
+
+        it('prefers a thread\'s own binding over the parent', () => {
+            bindingRepo.create({ channelId: 'parent-ch', workspacePath: 'parent-proj', guildId: 'guild-1' });
+            bindingRepo.create({ channelId: 'thread-1', workspacePath: 'thread-proj', guildId: 'guild-1' });
+            const result = handler.getWorkspaceForChannel('thread-1', 'parent-ch');
+            expect(result).toBe(path.join(tmpDir, 'thread-proj'));
+        });
+
+        it('returns undefined when neither the thread nor its parent is bound', () => {
+            expect(handler.getWorkspaceForChannel('thread-1', 'parent-ch')).toBeUndefined();
+        });
     });
 });

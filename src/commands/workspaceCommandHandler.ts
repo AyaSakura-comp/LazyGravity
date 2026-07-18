@@ -244,6 +244,27 @@ export class WorkspaceCommandHandler {
      * project is chosen — so the user can chat immediately. Opens that folder in
      * Antigravity. Returns the resolved workspace path.
      */
+    /**
+     * Ensure a thread has its OWN chat session row, inheriting the parent
+     * channel's workspace. A fresh session row (is_renamed=0) makes the message
+     * router call startNewChat for the thread's first message — so every thread
+     * is an independent Antigravity conversation — while older threads keep
+     * their own rows (displayName) and resume their original conversations.
+     */
+    public ensureThreadSession(threadChannelId: string, parentChannelId: string, guildId: string): void {
+        if (this.chatSessionRepo.findByChannelId(threadChannelId)) return;
+        const parentBinding = this.bindingRepo.findByChannelId(parentChannelId);
+        const parentSession = this.chatSessionRepo.findByChannelId(parentChannelId);
+        const workspaceName = parentBinding?.workspacePath ?? parentSession?.workspacePath ?? '.';
+        this.chatSessionRepo.create({
+            channelId: threadChannelId,
+            categoryId: parentChannelId,
+            workspacePath: workspaceName,
+            sessionNumber: 1,
+            guildId,
+        });
+    }
+
     public async ensureDefaultBinding(channelId: string, userId: string): Promise<string> {
         const workspaceName = '.'; // resolves to the workspace base dir (e.g. ~/src)
         const resolved = this.workspaceService.getWorkspacePath(workspaceName);
@@ -454,15 +475,24 @@ export class WorkspaceCommandHandler {
     /**
      * Get the bound project path from a channel ID
      */
-    public getWorkspaceForChannel(channelId: string): string | undefined {
+    public getWorkspaceForChannel(channelId: string, parentChannelId?: string | null): string | undefined {
         const binding = this.bindingRepo.findByChannelId(channelId);
         if (binding) {
             return this.workspaceService.getWorkspacePath(binding.workspacePath);
         }
 
         const session = this.chatSessionRepo.findByChannelId(channelId);
-        if (!session) return undefined;
+        if (session) {
+            return this.workspaceService.getWorkspacePath(session.workspacePath);
+        }
 
-        return this.workspaceService.getWorkspacePath(session.workspacePath);
+        // A thread with no binding of its own inherits its parent channel's
+        // workspace, so slash commands (/new, /model, …) and message routing work
+        // in threads immediately without re-binding a project per thread.
+        if (parentChannelId && parentChannelId !== channelId) {
+            return this.getWorkspaceForChannel(parentChannelId);
+        }
+
+        return undefined;
     }
 }
